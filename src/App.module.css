@@ -1,0 +1,17 @@
+.App {
+  text-align: center;
+}
+.centeredDiv {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2rem;
+}
+.horizontal {
+  align-items: center;
+  flex-direction: column;
+  gap: 1rem;
+}
+.error {
+  color: red;
+}
