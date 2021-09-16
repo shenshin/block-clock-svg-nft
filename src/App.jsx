@@ -1,26 +1,62 @@
 /* eslint-disable no-console */
 import { useEffect, useState } from 'react';
-import useContract from './hooks/useContact';
 import styles from './App.module.css';
+import getWeb3 from './hooks/getWeb3';
 import BlockClockSvgNft from './contracts/BlockClockSvgNft.json';
 
 const RERENDER_INTERVAL = 30000; // milliseconds
 
 function App() {
-  const { contract, web3, contractError } = useContract(BlockClockSvgNft);
+  const [web3, setWeb3] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [appError, setAppError] = useState('');
+  const [loading, setLoading] = useState(false);
+  // web3 is instantiated once
+  useEffect(() => {
+    (async () => {
+      const newWeb3 = await getWeb3();
+      const newAccounts = await newWeb3.eth.getAccounts();
+      setWeb3(newWeb3);
+      setAccounts(newAccounts);
+    })();
+  }, []);
+
+  const [contract, setContract] = useState(null);
+  const [tokenId, setTokenId] = useState(0);
+  // contract is instantiated once when web3 is set
+  useEffect(() => {
+    if (web3) {
+      web3.eth.net
+        .getId()
+        .then((networkId) => {
+          if (!BlockClockSvgNft.networks[networkId])
+            throw new Error(
+              `Contract is not deployed to the network with id ${networkId}`,
+            );
+          const deployedContract = new web3.eth.Contract(
+            BlockClockSvgNft.abi,
+            BlockClockSvgNft.networks[networkId].address,
+          );
+          // listen to contract event
+          deployedContract.events.TokenInfo().on('data', (event) => {
+            console.log('event is triggering');
+            const { _tokenId } = event.returnValues;
+            setTokenId(_tokenId);
+          });
+          setContract(deployedContract);
+        })
+        .catch((error) => setAppError(error.message));
+    }
+  }, [web3]);
 
   // input field values
   const [bitcoinColourInput, setBitcoinColourInput] = useState('#ff0000');
   const [rskColourInput, setRskColourInput] = useState('#00ff08');
   const [tokenIdInput, setTokenIdInput] = useState(0);
 
-  const [tokenId, setTokenId] = useState(0);
   const [rskSvg, setRskSvg] = useState('');
   const [rskBlockNumber, setRskBlockNumber] = useState('?');
   const [btcBlockNumber, setBtcBlockNumber] = useState('?');
-
-  const [loading, setLoading] = useState(false);
-  const [appError, setAppError] = useState('');
 
   const getBlockNumbers = async () => {
     const { 0: btcBlockNo, 1: rskBlockNo } = await contract.methods
@@ -40,27 +76,15 @@ function App() {
     }
   };
 
-  const listenToTokenInfoEvent = () => {
-    contract.events.TokenInfo().on('data', async (event) => {
-      try {
-        console.log('event is triggering');
-        const { _tokenId } = event.returnValues;
-        setTokenId(_tokenId);
-      } catch (err) {
-        setAppError(err.message);
-      }
-    });
-  };
-
   const createToken = async () => {
     try {
-      const [from] = await web3.eth.getAccounts();
-      console.log('sending transaction from: ', from);
+      if (!web3) throw new Error('web is not set');
+      console.log('sending transaction from: ', accounts[0]);
       // const getBytes = (color) => `0x${color.substr(1)}`;
       setLoading(true);
       await contract.methods
         .create(bitcoinColourInput, rskColourInput)
-        .send({ from });
+        .send({ from: accounts[0] });
     } catch (err) {
       setAppError(err.message);
     } finally {
@@ -70,7 +94,7 @@ function App() {
 
   useEffect(() => {
     let interval;
-    if (web3 && contract) {
+    if (contract) {
       getDynamicRskLogo();
       getBlockNumbers();
       interval = setInterval(() => {
@@ -79,15 +103,9 @@ function App() {
       }, RERENDER_INTERVAL);
     }
     return () => clearInterval(interval);
-  }, [web3, contract, tokenId]);
+  }, [contract, tokenId]);
 
-  useEffect(() => {
-    if (web3 && contract) listenToTokenInfoEvent();
-  }, [web3, contract]);
-
-  return contractError ? (
-    <h3 className={styles.error}>{contractError}</h3>
-  ) : (
+  return (
     <div className={styles.App}>
       <p>{`Token ID: ${tokenId}`}</p>
       <p>{`RSK block number: ${rskBlockNumber}`}</p>
