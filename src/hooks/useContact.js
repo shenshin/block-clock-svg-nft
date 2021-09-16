@@ -30,8 +30,9 @@ const useContract = (contractApi) => {
     })();
   }, [web3]);
   return {
+    web3,
     contract,
-    error: contractError,
+    contractError,
   };
 };
 

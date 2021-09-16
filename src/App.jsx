@@ -1,15 +1,13 @@
 /* eslint-disable no-console */
 import { useEffect, useState } from 'react';
 import useContract from './hooks/useContact';
-import useWeb3 from './hooks/useWeb3';
 import styles from './App.module.css';
 import BlockClockSvgNft from './contracts/BlockClockSvgNft.json';
 
 const RERENDER_INTERVAL = 30000; // milliseconds
 
 function App() {
-  const { web3 } = useWeb3();
-  const { contract, error: contractError } = useContract(BlockClockSvgNft);
+  const { contract, web3, contractError } = useContract(BlockClockSvgNft);
 
   // input field values
   const [bitcoinColourInput, setBitcoinColourInput] = useState('#ff0000');
@@ -73,7 +71,6 @@ function App() {
   useEffect(() => {
     let interval;
     if (web3 && contract) {
-      listenToTokenInfoEvent();
       getDynamicRskLogo();
       getBlockNumbers();
       interval = setInterval(() => {
@@ -83,6 +80,10 @@ function App() {
     }
     return () => clearInterval(interval);
   }, [web3, contract, tokenId]);
+
+  useEffect(() => {
+    if (web3 && contract) listenToTokenInfoEvent();
+  }, [web3, contract]);
 
   return contractError ? (
     <h3 className={styles.error}>{contractError}</h3>
