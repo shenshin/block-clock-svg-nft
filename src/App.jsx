@@ -1,109 +1,119 @@
-/* eslint-disable no-console */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import Web3 from 'web3';
 import styles from './App.module.css';
-import getWeb3 from './hooks/getWeb3';
 import BlockClockSvgNft from './contracts/BlockClockSvgNft.json';
 
 const RERENDER_INTERVAL = 30000; // milliseconds
 
 function App() {
   const [web3, setWeb3] = useState(null);
-  const [accounts, setAccounts] = useState([]);
+  const [accounts, setAccounts] = useState(null);
   const [appError, setAppError] = useState('');
   const [loading, setLoading] = useState(false);
-  // web3 is instantiated once
-  useEffect(() => {
-    (async () => {
-      const newWeb3 = await getWeb3();
-      const newAccounts = await newWeb3.eth.getAccounts();
-      setWeb3(newWeb3);
-      setAccounts(newAccounts);
-    })();
-  }, []);
+
+  const getMyWeb3 = useCallback(async () => {
+    if (web3) return web3;
+    if (!window.ethereum) throw new Error('You should enable Metamask');
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const myWeb3 = new Web3(window.ethereum);
+    setWeb3(myWeb3);
+    return myWeb3;
+  }, [web3]);
+  const getMyAccounts = useCallback(async () => {
+    if (accounts) return accounts;
+    const myWeb3 = await getMyWeb3();
+    const myAccounts = await myWeb3.eth.getAccounts();
+    setAccounts(myAccounts);
+    return myAccounts;
+  }, [web3, accounts]);
 
   const [contract, setContract] = useState(null);
   const [tokenId, setTokenId] = useState(0);
-  // contract is instantiated once when web3 is set
-  useEffect(() => {
-    if (web3) {
-      web3.eth.net
-        .getId()
-        .then((networkId) => {
-          if (!BlockClockSvgNft.networks[networkId])
-            throw new Error(
-              `Contract is not deployed to the network with id ${networkId}`,
-            );
-          const deployedContract = new web3.eth.Contract(
-            BlockClockSvgNft.abi,
-            BlockClockSvgNft.networks[networkId].address,
-          );
-          // listen to contract event
-          deployedContract.events.TokenInfo().on('data', (event) => {
-            console.log('event is triggering');
-            const { _tokenId } = event.returnValues;
-            setTokenId(_tokenId);
-          });
-          setContract(deployedContract);
-        })
-        .catch((error) => setAppError(error.message));
-    }
-  }, [web3]);
+
+  const getMyContract = useCallback(async () => {
+    if (contract) return contract;
+    const myWeb3 = await getMyWeb3();
+    const networkId = await myWeb3.eth.net.getId();
+    if (!BlockClockSvgNft.networks[networkId])
+      throw new Error(
+        `Contract is not deployed to the network with id ${networkId}`,
+      );
+    const deployedContract = new myWeb3.eth.Contract(
+      BlockClockSvgNft.abi,
+      BlockClockSvgNft.networks[networkId].address,
+    );
+    // listen to contract event
+    /* deployedContract.events.TokenInfo().on('data', (event) => {
+      console.log('event is triggering');
+      const { _tokenId } = event.returnValues;
+      setTokenId(_tokenId);
+    }); */
+    setContract(deployedContract);
+    return deployedContract;
+  }, [web3, contract]);
 
   // input field values
   const [bitcoinColourInput, setBitcoinColourInput] = useState('#ff0000');
   const [rskColourInput, setRskColourInput] = useState('#00ff08');
   const [tokenIdInput, setTokenIdInput] = useState(0);
 
+  // data from the contract
   const [rskSvg, setRskSvg] = useState('');
   const [rskBlockNumber, setRskBlockNumber] = useState('?');
   const [btcBlockNumber, setBtcBlockNumber] = useState('?');
 
-  const getBlockNumbers = async () => {
-    const { 0: btcBlockNo, 1: rskBlockNo } = await contract.methods
-      .getRskBtcBlockNumbers()
-      .call();
-    setRskBlockNumber(rskBlockNo);
-    setBtcBlockNumber(btcBlockNo);
-  };
+  const getBlockNumbers = useCallback(async () => {
+    try {
+      const myContract = await getMyContract();
+      const { 0: btcBlockNo, 1: rskBlockNo } = await myContract.methods
+        .getRskBtcBlockNumbers()
+        .call();
+      setRskBlockNumber(rskBlockNo);
+      setBtcBlockNumber(btcBlockNo);
+    } catch (error) {
+      setAppError(error.message);
+    }
+  }, [contract]);
 
-  const getDynamicRskLogo = async () => {
+  const getDynamicRskLogo = useCallback(async () => {
     try {
       setAppError('');
-      const logo = await contract?.methods.renderSvgLogo(tokenId).call();
+      const myContract = await getMyContract();
+      const logo = await myContract.methods.renderSvgLogo(tokenId).call();
       setRskSvg(logo);
-    } catch (err) {
-      setAppError(err.message);
+    } catch (error) {
+      setAppError(error.message);
     }
-  };
+  }, [contract, tokenId]);
 
-  const createToken = async () => {
+  const createToken = useCallback(async () => {
     try {
-      if (!web3) throw new Error('web is not set');
-      console.log('sending transaction from: ', accounts[0]);
-      // const getBytes = (color) => `0x${color.substr(1)}`;
+      setAppError('');
+      const myAccounts = await getMyAccounts();
+      const myContract = await getMyContract();
       setLoading(true);
-      await contract.methods
+      await myContract.methods
         .create(bitcoinColourInput, rskColourInput)
-        .send({ from: accounts[0] });
-    } catch (err) {
-      setAppError(err.message);
+        .send({ from: myAccounts[0] });
+    } catch (error) {
+      setAppError(error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [contract, accounts]);
 
   useEffect(() => {
     let interval;
-    if (contract) {
-      getDynamicRskLogo();
+    if (tokenId > 0) {
       getBlockNumbers();
+      getDynamicRskLogo();
       interval = setInterval(() => {
         getDynamicRskLogo();
         getBlockNumbers();
       }, RERENDER_INTERVAL);
     }
     return () => clearInterval(interval);
-  }, [contract, tokenId]);
+  }, [tokenId, contract]);
 
   return (
     <div className={styles.App}>
