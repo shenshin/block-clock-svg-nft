@@ -14,28 +14,33 @@ function App() {
   const [loading, setLoading] = useState(false);
 
   const enableWeb3 = async () => {
-    if (!window.ethereum) throw new Error('You should enable Metamask');
-    await window.ethereum.request({ method: 'eth_requestAccounts' });
-    const myWeb3 = new Web3(window.ethereum);
-    setWeb3(myWeb3);
-    const myAccounts = await myWeb3.eth.getAccounts();
-    setAccounts(myAccounts);
-    const networkId = await myWeb3.eth.net.getId();
-    if (!BlockClockSvgNft.networks[networkId])
-      throw new Error(
-        `Contract is not deployed to the network with id ${networkId}`,
+    try {
+      setAppError('');
+      if (!window.ethereum) throw new Error('You should enable Metamask');
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const myWeb3 = new Web3(window.ethereum);
+      setWeb3(myWeb3);
+      const myAccounts = await myWeb3.eth.getAccounts();
+      setAccounts(myAccounts);
+      const networkId = await myWeb3.eth.net.getId();
+      if (!BlockClockSvgNft.networks[networkId])
+        throw new Error(
+          `Contract is not deployed to the network with id ${networkId}`,
+        );
+      const deployedContract = new myWeb3.eth.Contract(
+        BlockClockSvgNft.abi,
+        BlockClockSvgNft.networks[networkId].address,
       );
-    const deployedContract = new myWeb3.eth.Contract(
-      BlockClockSvgNft.abi,
-      BlockClockSvgNft.networks[networkId].address,
-    );
-    // listen to contract event
-    /* deployedContract.events.TokenInfo().on('data', (event) => {
+      // listen to contract event
+      /* deployedContract.events.TokenInfo().on('data', (event) => {
       console.log('event is triggering');
       const { _tokenId } = event.returnValues;
       setTokenId(_tokenId);
     }); */
-    setContract(deployedContract);
+      setContract(deployedContract);
+    } catch (error) {
+      setAppError(error.message);
+    }
   };
 
   // input field values
