@@ -169,13 +169,13 @@ function App() {
               </button>
             </div>
           </div>
-          {appError && <h4 className={styles.error}>{appError}</h4>}
           {loading && <h1>Your transaction is being processed</h1>}
           {tokenId !== 0 && (
             <div dangerouslySetInnerHTML={{ __html: rskSvg }} />
           )}
         </>
       )}
+      {appError && <h4 className={styles.error}>{appError}</h4>}
     </div>
   );
 }
