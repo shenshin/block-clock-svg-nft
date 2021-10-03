@@ -1,0 +1,10 @@
+.container {
+  text-align: center;
+}
+.button {
+  margin-top: 1rem;
+  width: 30vw;
+  height: 3rem;
+  font-size: 1.4rem;
+  cursor: pointer;
+}

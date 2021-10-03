@@ -1,52 +1,16 @@
-import { useEffect, useState } from 'react';
-import Web3 from 'web3';
+import { useEffect, useState, useContext } from 'react';
+import { Web3Context } from './components/Web3/Web3';
+import ColourInputs from './components/ColourInputs/ColourInputs';
+import NumberInput from './components/NumberInput/NumberInput';
 import styles from './App.module.css';
-import BlockClockSvgNft from './contracts/BlockClockSvgNft.json';
 
 const RERENDER_INTERVAL = 30000; // milliseconds
 
 function App() {
-  const [web3, setWeb3] = useState(null);
-  const [accounts, setAccounts] = useState(null);
-  const [contract, setContract] = useState(null);
+  const { accounts, contract, error, setError, loading, setLoading } =
+    useContext(Web3Context);
   const [tokenId, setTokenId] = useState(0);
-  const [appError, setAppError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const enableWeb3 = async () => {
-    try {
-      setAppError('');
-      if (!window.ethereum) throw new Error('You should enable Metamask');
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const myWeb3 = new Web3(window.ethereum);
-      setWeb3(myWeb3);
-      const myAccounts = await myWeb3.eth.getAccounts();
-      setAccounts(myAccounts);
-      const networkId = await myWeb3.eth.net.getId();
-      if (!BlockClockSvgNft.networks[networkId])
-        throw new Error(
-          `Contract is not deployed to the network with id ${networkId}`,
-        );
-      const deployedContract = new myWeb3.eth.Contract(
-        BlockClockSvgNft.abi,
-        BlockClockSvgNft.networks[networkId].address,
-      );
-      // listen to contract event
-      /* deployedContract.events.TokenInfo().on('data', (event) => {
-      console.log('event is triggering');
-      const { _tokenId } = event.returnValues;
-      setTokenId(_tokenId);
-    }); */
-      setContract(deployedContract);
-    } catch (error) {
-      setAppError(error.message);
-    }
-  };
-
-  // input field values
-  const [bitcoinColourInput, setBitcoinColourInput] = useState('#ff0000');
-  const [rskColourInput, setRskColourInput] = useState('#00ff08');
-  const [tokenIdInput, setTokenIdInput] = useState(0);
+  const [nftData, setNftData] = useState(null);
 
   // data from the contract
   const [rskSvg, setRskSvg] = useState('');
@@ -54,129 +18,149 @@ function App() {
   const [btcBlockNumber, setBtcBlockNumber] = useState('');
 
   const getBlockNumbers = async () => {
-    const { 0: btcBlockNo, 1: rskBlockNo } = await contract.methods
-      .getRskBtcBlockNumbers()
-      .call();
-    setRskBlockNumber(rskBlockNo);
-    setBtcBlockNumber(btcBlockNo);
+    const result = await contract.methods.getRskBtcBlockNumbers().call();
+    setRskBlockNumber(result['1']);
+    setBtcBlockNumber(result['0']);
   };
 
   const getDynamicRskLogo = async () => {
-    setAppError('');
-    const logo = await contract.methods.renderSvgLogo(tokenId).call();
+    setError('');
+    const logo = String(await contract.methods.renderSvgLogo(tokenId).call());
+    if (!(logo.startsWith('<svg') && logo.endsWith('</svg>'))) {
+      throw new Error(
+        'Received data is not an SVG file and can not be displayed',
+      );
+    }
     setRskSvg(logo);
   };
 
-  const createToken = async () => {
+  const getNftData = async () =>
+    setNftData(await contract.methods.getNftData(tokenId).call());
+
+  const updateContractData = async () => {
     try {
-      setAppError('');
-      setLoading(true);
+      await getNftData();
+      await getBlockNumbers();
+      await getDynamicRskLogo();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const sendTransaction = async (transaction) => {
+    try {
+      setError('');
+      setLoading('Wait, your transaction is being processed');
+      await transaction();
+      await updateContractData();
+    } catch (err) {
+      setLoading('');
+      setError(
+        err.message ??
+          'Your transaction was reverted. Check your payment details',
+      );
+    }
+  };
+
+  const createToken = (bitcoinColourInput, rskColourInput) => {
+    sendTransaction(async () => {
       await contract.methods
         .create(bitcoinColourInput, rskColourInput)
         .send({ from: accounts[0] });
-    } catch (error) {
-      setAppError(error.message);
-    } finally {
-      setLoading(false);
+    });
+  };
+
+  const sendLunaTokens = (lunas) => {
+    if (tokenId > 0) {
+      sendTransaction(async () => {
+        if (!nftData?.exists)
+          throw new Error('Can not send Lunas to non-existent NFT');
+        await contract.methods
+          .transferLunas(lunas, tokenId)
+          .send({ from: accounts[0] });
+        setLoading(`${lunas} Lunas were credited to the NFT#${tokenId}`);
+      });
+    }
+  };
+
+  const changeColours = (changeBitcoinColourInput, changeRskColourInput) => {
+    if (tokenId > 0) {
+      sendTransaction(async () => {
+        if (nftData?.lunasBalance < 100)
+          throw new Error('First top up your Lunas balance');
+        await contract.methods
+          .payLunasForColoursChange(
+            tokenId,
+            changeBitcoinColourInput,
+            changeRskColourInput,
+          )
+          .send({ from: accounts[0] });
+        setLoading('');
+      });
     }
   };
 
   useEffect(() => {
+    setLoading('');
     let interval;
     if (tokenId > 0) {
-      (async () => {
-        try {
-          await getBlockNumbers();
-          await getDynamicRskLogo();
-          interval = setInterval(async () => {
-            try {
-              await getDynamicRskLogo();
-              await getBlockNumbers();
-            } catch (error) {
-              setAppError(error.message);
-            }
-          }, RERENDER_INTERVAL);
-        } catch (error) {
-          setAppError(error.message);
-        }
-      })();
+      updateContractData();
+      interval = setInterval(() => {
+        updateContractData();
+      }, RERENDER_INTERVAL);
     }
     return () => clearInterval(interval);
   }, [tokenId]);
 
   return (
-    <div className={styles.App}>
-      {!web3 ? (
-        <button
-          className={styles.enableWeb3}
-          type="button"
-          onClick={enableWeb3}
-        >
-          Enable Web3
-        </button>
-      ) : (
-        <>
+    <>
+      <h1>Block-Clock SVG-rendering NFT</h1>
+      <div className={styles.container}>
+        <div className={styles.info}>
+          <h2 className={styles.inputsTitle}>
+            Choose leaf colors for your NFT token
+          </h2>
+          <div className={styles.inputsContainer}>
+            <ColourInputs buttonText="Create NFT" handleClick={createToken} />
+            <NumberInput buttonText="Get NTF by ID" handleClick={setTokenId} />
+            <div>
+              <NumberInput
+                buttonText="Send Lunas"
+                min={100}
+                step={100}
+                handleClick={sendLunaTokens}
+              />
+              <p className={styles.clarify}>{`to NFT#${tokenId}`}</p>
+            </div>
+            <div>
+              <ColourInputs
+                buttonText="Change colours"
+                handleClick={changeColours}
+              />
+              <p className={styles.clarify}>for 100 Lunas</p>
+            </div>
+          </div>
+          {loading && <h1>{loading}</h1>}
+          {error && <h1 className={styles.error}>{error}</h1>}
           {tokenId !== 0 && (
             <>
-              <p>{`Token ID: ${tokenId}`}</p>
+              <h3 className={styles.nftId}>{`NFT ID: ${tokenId}`}</h3>
+              <p>{`NFT Owner: ${
+                nftData?.exists ? nftData?.owner : 'non-existent NFT'
+              }`}</p>
+              <p>{`Luna tokens balance: ${nftData?.lunasBalance ?? '0'}`}</p>
               <p>{`RSK block number: ${rskBlockNumber}`}</p>
               <p>{`BTC block number: ${btcBlockNumber}`}</p>
             </>
           )}
-          <h3>Choose leaf colors for your NFT token</h3>
-          <div className={styles.centeredDiv}>
-            <div>
-              <div className={styles.centeredDiv}>
-                <div>
-                  <input
-                    type="color"
-                    name=""
-                    id=""
-                    value={bitcoinColourInput}
-                    onChange={(e) => setBitcoinColourInput(e.target.value)}
-                  />
-                  <p>BTC leaf</p>
-                </div>
-                <div>
-                  <input
-                    type="color"
-                    name=""
-                    id=""
-                    value={rskColourInput}
-                    onChange={(e) => setRskColourInput(e.target.value)}
-                  />
-                  <p>RSK leaf</p>
-                </div>
-              </div>
-              <button type="button" onClick={createToken}>
-                Create NFT with above colors
-              </button>
-            </div>
-            <div className={`${styles.centeredDiv} ${styles.horizontal}`}>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                style={{ width: '3rem' }}
-                value={tokenIdInput}
-                onChange={(e) => setTokenIdInput(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => setTokenId(Number(tokenIdInput))}
-              >
-                Get NTF with ID
-              </button>
-            </div>
-          </div>
-          {loading && <h1>Your transaction is being processed</h1>}
+        </div>
+        <div>
           {tokenId !== 0 && (
             <div dangerouslySetInnerHTML={{ __html: rskSvg }} />
           )}
-        </>
-      )}
-      {appError && <h4 className={styles.error}>{appError}</h4>}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }
 
