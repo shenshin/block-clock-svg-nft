@@ -7,7 +7,7 @@ import styles from './App.module.css';
 const RERENDER_INTERVAL = 30000; // milliseconds
 
 function App() {
-  const { accounts, contract, error, setError, loading, setLoading } =
+  const { accounts, contract, error, setError, message, setMessage } =
     useContext(Web3Context);
   const [tokenId, setTokenId] = useState(0);
   const [nftData, setNftData] = useState(null);
@@ -37,8 +37,10 @@ function App() {
   const getNftData = async () =>
     setNftData(await contract.methods.getNftData(tokenId).call());
 
+  // query blockchain for the changes
   const updateContractData = async () => {
     try {
+      setError('');
       await getNftData();
       await getBlockNumbers();
       await getDynamicRskLogo();
@@ -47,20 +49,25 @@ function App() {
     }
   };
 
+  // wrapper function for transactions
   const sendTransaction = async (transaction) => {
     try {
       setError('');
-      setLoading('Wait, your transaction is being processed');
+      setMessage('Wait, your transaction is being processed');
       await transaction();
       await updateContractData();
     } catch (err) {
-      setLoading('');
+      setMessage('');
       setError(
         err.message ??
           'Your transaction was reverted. Check your payment details',
       );
     }
   };
+
+  /*
+   * Transactions
+   */
 
   const createToken = (bitcoinColourInput, rskColourInput) => {
     sendTransaction(async () => {
@@ -78,7 +85,7 @@ function App() {
         await contract.methods
           .transferLunas(lunas, tokenId)
           .send({ from: accounts[0] });
-        setLoading(`${lunas} Lunas were credited to the NFT#${tokenId}`);
+        setMessage(`${lunas} Lunas were credited to the NFT#${tokenId}`);
       });
     }
   };
@@ -95,13 +102,13 @@ function App() {
             changeRskColourInput,
           )
           .send({ from: accounts[0] });
-        setLoading('');
+        setMessage('');
       });
     }
   };
 
   useEffect(() => {
-    setLoading('');
+    setMessage('');
     let interval;
     if (tokenId > 0) {
       updateContractData();
@@ -140,7 +147,7 @@ function App() {
               <p className={styles.clarify}>for 100 Lunas</p>
             </div>
           </div>
-          {loading && <h1>{loading}</h1>}
+          {message && <h1>{message}</h1>}
           {error && <h1 className={styles.error}>{error}</h1>}
           {tokenId !== 0 && (
             <>

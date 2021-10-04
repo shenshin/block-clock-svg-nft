@@ -13,7 +13,7 @@ export function Web3({ children }) {
   const [accounts, setAccounts] = useState(null);
   const [contract, setContract] = useState(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(false);
 
   const enableWeb3 = async () => {
     try {
@@ -57,7 +57,7 @@ export function Web3({ children }) {
           .TokenInfo()
           .on('data', (event) => {
             const { _tokenId } = event.returnValues;
-            setLoading(`Token ${_tokenId} was created`);
+            setMessage(`Token ${_tokenId} was created`);
           })
           // keep connection alive
           .on('error', () => {
@@ -65,7 +65,7 @@ export function Web3({ children }) {
               lastCall = Date.now();
               addEventListener();
             } else {
-              throw new Error('Event listener detached');
+              setError('Event listener detached');
             }
           });
       };
@@ -78,9 +78,12 @@ export function Web3({ children }) {
   return (
     <div className={styles.container}>
       {!web3 ? (
-        <button className={styles.button} type="button" onClick={enableWeb3}>
-          Enable Web3
-        </button>
+        <>
+          {error && <h2 className={styles.error}>{error}</h2>}
+          <button className={styles.button} type="button" onClick={enableWeb3}>
+            Enable Web3
+          </button>
+        </>
       ) : (
         <Web3Context.Provider
           value={{
@@ -89,8 +92,8 @@ export function Web3({ children }) {
             contract,
             error,
             setError,
-            loading,
-            setLoading,
+            message,
+            setMessage,
           }}
         >
           {children}
